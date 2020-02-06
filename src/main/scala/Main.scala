@@ -4,12 +4,10 @@ import org.apache.spark.sql.functions._
 object Main {
 
   private val CSV = "csv"
-  private val PATH = "src/main/resources/"
 
   def main(args: Array[String]): Unit = {
 
     val spark = SparkSession.builder()
-      .master("local[*]")
       .appName("SparkProject")
       .getOrCreate()
 
@@ -21,40 +19,48 @@ object Main {
         .load(path)
     }
 
-    val transactionData = loadDataFrame(PATH + "transaction.csv", CSV)
-    val clientsData = loadDataFrame(PATH + "clients.csv", CSV)
-    val itemsData = loadDataFrame(PATH + "items.csv", CSV)
+    val transactionData = loadDataFrame(spark.conf.get(ApplicationProperties.TRANSACTION_FILE), CSV)
+    val clientsData = loadDataFrame(spark.conf.get(ApplicationProperties.CLIENTS_FILE), CSV)
+    val itemsData = loadDataFrame(spark.conf.get(ApplicationProperties.ITEMS_FILE), CSV)
 
+    val bestClient = spark.conf.get(ApplicationProperties.BEST_CLIENT)
+    val bestSoldItem = spark.conf.get(ApplicationProperties.BEST_SOLD_ITEM)
+    val bestProfitableItem = spark.conf.get(ApplicationProperties.BEST_PROFITABLE_ITEM)
 
     transactionData.groupBy("client_id")
       .count()
       .sort(desc("count"))
-      .join(clientsData,transactionData("client_id") === clientsData("id"))
-      .select("client_id","count","Name","First_Name")
+      .join(clientsData, transactionData("client_id") === clientsData("id"))
+      .select(col("client_id").as("ID client"),
+        col("count").as("Count transaction"),
+        col("Name").as("Name"),
+        col("First_Name").as("First Name"))
       .repartition(1)
-      .write
-      .csv(PATH + "plusGrosClient")
+      .write.option("header", "true")
+      .csv(bestClient)
 
     transactionData.groupBy("Item_id")
       .count()
       .sort(desc("count"))
-      .join(itemsData,transactionData("Item_id") === itemsData("id"))
-      .select("Item_id","count","Item_Name")
+      .join(itemsData, transactionData("Item_id") === itemsData("id"))
+      .select(col("Item_id").as("ID item"),
+        col("count").as("Sold count"),
+        col( "Item_Name").as("Name item"))
       .repartition(1)
-      .write
-      .csv(PATH + "produitsPlusVendu")
+      .write.option("header", "true")
+      .csv(bestSoldItem)
 
     transactionData
-      .join(itemsData,transactionData("Item_id") === itemsData("id"))
-      .withColumn("profit",itemsData("Item_Selling_Price") - itemsData("Item_Buyed_Price"))
+      .join(itemsData, transactionData("Item_id") === itemsData("id"))
+      .withColumn("profit", itemsData("Item_Selling_Price") - itemsData("Item_Buyed_Price"))
       .groupBy("Item_Name")
       .sum("profit")
       .sort(desc("sum(profit)"))
-      .select("Item_Name","sum(profit)")
+      .select(col("Item_Name").as("Name Item")
+        , col("sum(profit)").as("Profit sum"))
       .repartition(1)
-      .write
-      .csv(PATH + "produitsQuiRapportentLePlus")
+      .write.option("header", "true")
+      .csv(bestProfitableItem)
 
   }
-
 }
